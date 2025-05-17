@@ -4,6 +4,13 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
+// Extend Window interface to include showToast
+declare global {
+  interface Window {
+    showToast?: (message: string, type: 'success' | 'error' | 'info', actionLink?: string, actionText?: string) => void;
+  }
+}
+
 // Toast notification component
 export const Toast = ({
   message,
@@ -161,11 +168,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // Make showToast available globally
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      (window as any).showToast = showToast;
+      window.showToast = showToast;
     }
     return () => {
-      if (typeof window !== 'undefined') {
-        delete (window as any).showToast;
+      if (typeof window !== 'undefined' && window.showToast) {
+        window.showToast = undefined;
       }
     };
   }, []);

@@ -4,7 +4,6 @@ const nextConfig: NextConfig = {
   // Enable experimental features
   experimental: {
     // Enable App Router
-    appDir: true,
   },
   // Increase timeout for API routes
   api: {

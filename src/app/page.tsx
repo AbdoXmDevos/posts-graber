@@ -1,5 +1,40 @@
 "use client"
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+
+// Extend Window interface to include showToast
+declare global {
+  interface Window {
+    showToast?: (message: string, type: 'success' | 'error' | 'info', actionLink?: string, actionText?: string) => void;
+  }
+}
+
+// Define types for Instagram post data
+interface InstagramPost {
+  imageUrl?: string;
+  caption?: string;
+  timestamp?: string;
+  likes?: number;
+  comments?: number;
+  [key: string]: unknown; // For any other properties that might be in the data
+}
+
+// Define type for API response
+interface ApiResponse {
+  data: InstagramPost[];
+  fileName: string;
+  timestamp: string;
+  username: string;
+  postCount: number;
+  savedToDatabase: boolean;
+  message?: string;
+  error?: string;
+}
+
+// Define type for error object
+interface ApiError {
+  message: string;
+  [key: string]: unknown;
+}
 
 export default function Home() {
   const [username, setUsername] = useState('');
@@ -15,10 +50,9 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [processingTime, setProcessingTime] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [jsonData, setJsonData] = useState<any[] | null>(null);
+  const [jsonData, setJsonData] = useState<InstagramPost[] | null>(null);
   const [showFullJson, setShowFullJson] = useState(false);
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
-  const [savedToDatabase, setSavedToDatabase] = useState(false);
 
   const handleSubmit = async () => {
     if (!username) {
@@ -95,9 +129,6 @@ export default function Home() {
         const url = URL.createObjectURL(blob);
         setDownloadLink(url);
 
-        // Set saved to database state
-        setSavedToDatabase(data.savedToDatabase || false);
-
         // Log some info about the data
         console.info(`Received ${data.postCount} posts for ${data.username}`);
         console.info(`Timestamp: ${data.timestamp}`);
@@ -105,8 +136,8 @@ export default function Home() {
         console.info(`Saved to database: ${data.savedToDatabase}`);
 
         // Show success toast with link to list page
-        if (data.savedToDatabase && (window as any).showToast) {
-          (window as any).showToast(
+        if (data.savedToDatabase && typeof window !== 'undefined' && window.showToast) {
+          window.showToast(
             `Successfully generated JSON for @${username} with ${data.postCount} posts!`,
             'success',
             '/list',
@@ -116,20 +147,22 @@ export default function Home() {
       } else {
         throw new Error('No data returned from server');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching Instagram data:', err);
+
+      const error = err as ApiError;
 
       // Check if the error is related to a timeout
       if (
-        err.message && (
-          err.message.includes('timed out') ||
-          err.message.includes('timeout') ||
-          err.message.includes('Apify run timed out')
+        error.message && (
+          error.message.includes('timed out') ||
+          error.message.includes('timeout') ||
+          error.message.includes('Apify run timed out')
         )
       ) {
         setError('Generation timed out. Please try to regenerate with fewer posts or try again later.');
       } else {
-        setError(err.message || 'Failed to fetch Instagram data. Please try again later.');
+        setError(error.message || 'Failed to fetch Instagram data. Please try again later.');
       }
     } finally {
       clearInterval(timerInterval);
