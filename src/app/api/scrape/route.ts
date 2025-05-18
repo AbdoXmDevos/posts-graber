@@ -15,13 +15,14 @@ const APIFY_API_URL = `https://api.apify.com/v2/acts/${INSTAGRAM_SCRAPER_ACTOR_I
 export async function POST(request: NextRequest) {
     try {
         // Parse request body safely
-        let username, fields, limit = 30;
+        let username, fields, limit = 30, extractAnime = false;
 
         try {
             const body = await request.json();
             username = body.username;
             fields = body.fields;
             limit = body.limit || 30;
+            extractAnime = body.extractAnime || false;
         } catch (parseError) {
             console.error('Error parsing request body:', parseError);
             return NextResponse.json({ error: 'Invalid request body format' }, { status: 400 });
@@ -143,6 +144,57 @@ export async function POST(request: NextRequest) {
 
             console.log(`Processing data for ${username} with ${filteredData.length} posts`);
 
+            // Process anime extraction if enabled
+            if (extractAnime && filteredData.some((post: any) => post.caption)) {
+                console.log('Extracting anime names from captions...');
+
+                // Get posts with captions for processing
+                const postsWithCaptions = filteredData.filter((post: any) => post.caption);
+                const totalPosts = postsWithCaptions.length;
+                console.log(`Found ${totalPosts} posts with captions to process`);
+
+                // Process each post with a caption
+                let processedCount = 0;
+
+                for (const post of postsWithCaptions) {
+                    processedCount++;
+                    console.log(`Processing anime extraction for post ${processedCount}/${totalPosts}`);
+
+                    try {
+                        // Call the anime extraction API
+                        const animeResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/extract-anime`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                caption: post.caption,
+                                progress: {
+                                    current: processedCount,
+                                    total: totalPosts
+                                }
+                            }),
+                        });
+
+                        if (animeResponse.ok) {
+                            const animeData = await animeResponse.json();
+                            if (animeData.success && animeData.anime) {
+                                // Add the anime field to the post
+                                post.anime = animeData.anime;
+                                console.log(`Extracted anime "${animeData.anime}" from post ${processedCount}/${totalPosts}`);
+                            }
+                        } else {
+                            console.error(`Failed to extract anime from caption (${processedCount}/${totalPosts}):`, post.caption);
+                        }
+                    } catch (animeError) {
+                        console.error(`Error extracting anime (${processedCount}/${totalPosts}):`, animeError);
+                        // Continue with the next post even if there's an error
+                    }
+                }
+
+                console.log(`Finished anime extraction for all ${totalPosts} posts`);
+            }
+
             // Generate a suggested filename for download
             const fileName = `instagram_${username}_${Date.now()}.json`;
 
@@ -168,14 +220,15 @@ export async function POST(request: NextRequest) {
                 // Continue even if there's an error saving to Supabase
             }
 
-            // Return the data directly
+            // Return the data directly with anime extraction progress info if applicable
             return NextResponse.json({
                 data: filteredData,
                 fileName: fileName,
                 timestamp: new Date().toISOString(),
                 username: username,
                 postCount: filteredData.length,
-                savedToDatabase: true
+                savedToDatabase: true,
+                animeExtracted: extractAnime && filteredData.some((post: any) => post.anime)
             }, { status: 200 });
         } catch (apifyError: any) {
             console.error('Apify error:', apifyError);

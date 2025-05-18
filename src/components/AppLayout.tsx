@@ -222,6 +222,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   Saved Files
                 </Link>
               </li>
+              <li>
+                <Link
+                  href="/merge"
+                  className={`flex items-center p-2 rounded-md transition-colors ${
+                    pathname === '/merge'
+                      ? 'bg-gradient-to-r from-purple-900/40 to-transparent border-l-2 border-purple-500 text-purple-400'
+                      : 'hover:bg-gray-900 text-gray-300'
+                  }`}
+                >
+                  <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                  </svg>
+                  Merge Files
+                </Link>
+              </li>
             </ul>
           </nav>
         </div>

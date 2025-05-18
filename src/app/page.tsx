@@ -1,5 +1,5 @@
 "use client"
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 // Extend Window interface to include showToast
 declare global {
@@ -15,6 +15,7 @@ interface InstagramPost {
   timestamp?: string;
   likes?: number;
   comments?: number;
+  anime?: string; // Added anime field
   [key: string]: unknown; // For any other properties that might be in the data
 }
 
@@ -46,6 +47,7 @@ export default function Home() {
     likes: false,
     comments: false
   });
+  const [extractAnime, setExtractAnime] = useState(false);
   const [downloadLink, setDownloadLink] = useState('');
   const [loading, setLoading] = useState(false);
   const [processingTime, setProcessingTime] = useState(0);
@@ -53,6 +55,26 @@ export default function Home() {
   const [jsonData, setJsonData] = useState<InstagramPost[] | null>(null);
   const [showFullJson, setShowFullJson] = useState(false);
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
+  const [animeExtractionProgress, setAnimeExtractionProgress] = useState<{ current: number, total: number } | null>(null);
+
+  // Setup event source for progress updates
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // Create a custom event listener for anime extraction progress
+    const handleAnimeProgress = (event: CustomEvent) => {
+      const { current, total } = event.detail;
+      setAnimeExtractionProgress({ current, total });
+    };
+
+    // Add event listener
+    window.addEventListener('animeExtractionProgress', handleAnimeProgress as EventListener);
+
+    // Return cleanup function
+    return () => {
+      window.removeEventListener('animeExtractionProgress', handleAnimeProgress as EventListener);
+    };
+  }, []);
 
   const handleSubmit = async () => {
     if (!username) {
@@ -74,6 +96,7 @@ export default function Home() {
     setJsonData(null);
     setShowFullJson(false);
     setCopySuccess(null);
+    setAnimeExtractionProgress(null);
 
     // Start a timer to show processing time
     const startTime = Date.now();
@@ -91,7 +114,8 @@ export default function Home() {
         body: JSON.stringify({
           username,
           fields,
-          limit: effectiveLimit // Include the limit parameter in the API call
+          limit: effectiveLimit, // Include the limit parameter in the API call
+          extractAnime // Include the extractAnime flag
         }),
         headers: {
           'Content-Type': 'application/json',
@@ -102,7 +126,57 @@ export default function Home() {
       let data;
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
-        data = await response.json();
+        // Set up a reader for the response body to get progress updates
+        if (extractAnime) {
+          const reader = response.body?.getReader();
+          const decoder = new TextDecoder();
+          let responseText = '';
+
+          if (reader) {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              const chunk = decoder.decode(value, { stream: true });
+              responseText += chunk;
+
+              // Try to parse any complete JSON objects in the response
+              try {
+                // Look for progress updates in the response
+                if (responseText.includes('"progress":')) {
+                  const match = responseText.match(/"progress":\s*{\s*"current":\s*(\d+),\s*"total":\s*(\d+)\s*}/);
+                  if (match && match[1] && match[2]) {
+                    const current = parseInt(match[1]);
+                    const total = parseInt(match[2]);
+
+                    // Dispatch a custom event with the progress
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('animeExtractionProgress', {
+                        detail: { current, total }
+                      }));
+                    }
+                  }
+                }
+              } catch (e) {
+                // Ignore parsing errors for incomplete chunks
+              }
+            }
+
+            // Parse the complete response
+            try {
+              data = JSON.parse(responseText);
+            } catch (e) {
+              console.error('Error parsing response JSON:', e);
+              throw new Error('Failed to parse response JSON');
+            }
+          } else {
+            // Fallback to regular JSON parsing if reader is not available
+            data = await response.json();
+          }
+        } else {
+          // Regular JSON parsing for non-anime extraction requests
+          data = await response.json();
+        }
       } else {
         const text = await response.text();
         console.error('Non-JSON response:', text);
@@ -261,6 +335,21 @@ export default function Home() {
         </div>
       </div>
 
+      <div className="mb-6 p-4 bg-gray-800 rounded-lg border border-gray-700">
+        <h3 className="text-sm font-medium text-gray-300 mb-3">AI Processing:</h3>
+        <div className="grid grid-cols-1 gap-3">
+          <label className="flex items-center text-gray-300 hover:text-white">
+            <input
+              type="checkbox"
+              checked={extractAnime}
+              onChange={() => setExtractAnime(!extractAnime)}
+              className="mr-2 h-4 w-4 rounded border-gray-700 text-purple-500 focus:ring-purple-500 focus:ring-offset-gray-800"
+            />
+            Extract Anime Names (uses AI to detect anime titles in captions)
+          </label>
+        </div>
+      </div>
+
       <button
         onClick={handleSubmit}
         disabled={loading}
@@ -276,13 +365,29 @@ export default function Home() {
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            {processingTime > 10
-              ? `Instagram data scraping can take up to 60 seconds. Please be patient... (${processingTime}s)`
-              : 'Processing request...'}
+            {animeExtractionProgress ? (
+              `Extracting anime from captions (${animeExtractionProgress.current}/${animeExtractionProgress.total})... (${processingTime}s)`
+            ) : (
+              processingTime > 10
+                ? `Instagram data scraping can take up to 60 seconds. Please be patient... (${processingTime}s)`
+                : 'Processing request...'
+            )}
           </div>
           <div className="w-full bg-gray-700 rounded-full h-2 mt-3">
-            <div className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full" style={{ width: `${Math.min(processingTime * 1.6, 100)}%` }}></div>
+            <div
+              className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full"
+              style={{
+                width: animeExtractionProgress
+                  ? `${Math.min((animeExtractionProgress.current / animeExtractionProgress.total) * 100, 100)}%`
+                  : `${Math.min(processingTime * 1.6, 100)}%`
+              }}
+            ></div>
           </div>
+          {animeExtractionProgress && (
+            <div className="mt-2 text-xs text-gray-400">
+              Using AI to analyze captions and extract anime titles...
+            </div>
+          )}
         </div>
       )}
 
@@ -404,6 +509,16 @@ export default function Home() {
                   </svg>
                   <div className="text-gray-300">Avg. Likes: <span className="font-semibold text-white">
                     {Math.round(jsonData.reduce((sum, post) => sum + (post.likes || 0), 0) / jsonData.length)}
+                  </span></div>
+                </div>
+              )}
+              {jsonData.some(post => post.anime) && (
+                <div className="flex items-center">
+                  <svg className="w-4 h-4 mr-2 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
+                  </svg>
+                  <div className="text-gray-300">Anime Detected: <span className="font-semibold text-white">
+                    {jsonData.filter(post => post.anime).length} posts
                   </span></div>
                 </div>
               )}
